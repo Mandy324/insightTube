@@ -7,6 +7,7 @@ export default function QuizPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const quiz = location.state?.quiz as Quiz | undefined;
+  const sessionId = location.state?.sessionId as string | undefined;
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<(number | null)[]>([]);
 
@@ -50,10 +51,10 @@ export default function QuizPage() {
         answers: finalAnswers,
         score,
         totalQuestions: quiz.questions.length,
-        completedAt: new Date(),
+        completedAt: new Date().toISOString(),
       };
 
-      navigate("/results", { state: { result } });
+      navigate("/results", { state: { result, sessionId } });
     }
   };
 

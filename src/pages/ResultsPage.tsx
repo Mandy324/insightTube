@@ -1,11 +1,23 @@
+import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ScoreCard from "../components/ScoreCard";
 import { QuizResult } from "../types";
+import { addQuizResultToSession } from "../services/storage";
 
 export default function ResultsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const result = location.state?.result as QuizResult | undefined;
+  const sessionId = location.state?.sessionId as string | undefined;
+  const savedRef = useRef(false);
+
+  // Persist quiz result to session
+  useEffect(() => {
+    if (result && sessionId && !savedRef.current) {
+      savedRef.current = true;
+      addQuizResultToSession(sessionId, result);
+    }
+  }, [result, sessionId]);
 
   if (!result) {
     return (
@@ -22,16 +34,22 @@ export default function ResultsPage() {
   }
 
   const handleRetry = () => {
-    navigate("/quiz", { state: { quiz: result.quiz } });
+    navigate("/quiz", { state: { quiz: result.quiz, sessionId } });
   };
 
   const handleHome = () => {
     navigate("/");
   };
 
+  const handleViewStudy = () => {
+    if (sessionId) {
+      navigate(`/study/${sessionId}`);
+    }
+  };
+
   return (
     <div className="page results-page">
-      <ScoreCard result={result} onRetry={handleRetry} onHome={handleHome} />
+      <ScoreCard result={result} onRetry={handleRetry} onHome={handleHome} onStudy={sessionId ? handleViewStudy : undefined} />
     </div>
   );
 }

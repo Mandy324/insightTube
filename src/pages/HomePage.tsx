@@ -5,7 +5,7 @@ import VideoInput from "../components/VideoInput";
 import ModelSelector from "../components/ModelSelector";
 import { getTranscript, transcriptToText, extractVideoId, getVideoThumbnail } from "../services/transcript";
 import { generateQuiz, getDefaultModelForProvider } from "../services/ai";
-import { getSettings, saveSettings } from "../services/storage";
+import { getSettings, saveSettings, getVideoSessionByVideoId, saveVideoSession } from "../services/storage";
 import { Quiz, AppSettings } from "../types";
 
 type Stage = "idle" | "transcript" | "generating" | "done";
@@ -87,10 +87,27 @@ export default function HomePage() {
         questions,
       };
 
+      // Persist the video session
+      let session = await getVideoSessionByVideoId(videoId);
+      if (!session) {
+        session = {
+          id: crypto.randomUUID(),
+          videoId,
+          videoUrl: url,
+          videoTitle: quiz.videoTitle,
+          thumbnailUrl: getVideoThumbnail(videoId),
+          transcript: transcriptText,
+          createdAt: new Date().toISOString(),
+          quizResults: [],
+          studyMaterials: {},
+        };
+        await saveVideoSession(session);
+      }
+
       setStage("done");
 
-      // Navigate to quiz page with quiz data
-      navigate("/quiz", { state: { quiz } });
+      // Navigate to quiz page with quiz data and session id
+      navigate("/quiz", { state: { quiz, sessionId: session.id } });
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "An unexpected error occurred";

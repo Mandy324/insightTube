@@ -1,13 +1,14 @@
 import { QuizResult } from "../types";
-import { Trophy, Target, RotateCcw, Home } from "lucide-react";
+import { Trophy, Target, RotateCcw, Home, BookOpen } from "lucide-react";
 
 interface ScoreCardProps {
   result: QuizResult;
   onRetry: () => void;
   onHome: () => void;
+  onStudy?: () => void;
 }
 
-export default function ScoreCard({ result, onRetry, onHome }: ScoreCardProps) {
+export default function ScoreCard({ result, onRetry, onHome, onStudy }: ScoreCardProps) {
   const percentage = Math.round(
     (result.score / result.totalQuestions) * 100
   );
@@ -92,6 +93,12 @@ export default function ScoreCard({ result, onRetry, onHome }: ScoreCardProps) {
           <RotateCcw size={18} />
           <span>Retry Quiz</span>
         </button>
+        {onStudy && (
+          <button className="btn btn-secondary" onClick={onStudy}>
+            <BookOpen size={18} />
+            <span>Study Materials</span>
+          </button>
+        )}
         <button className="btn btn-primary" onClick={onHome}>
           <Home size={18} />
           <span>New Video</span>

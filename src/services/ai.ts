@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
-import { AIProvider, AIModel, QuizQuestion } from "../types";
+import { AIProvider, AIModel, QuizQuestion, StudyMaterials, Flashcard, MindMapNode, StudyMaterialType } from "../types";
 
 const QUIZ_SYSTEM_PROMPT = `You are an expert educator. Given a video transcript, generate a quiz to test comprehension.
 
@@ -186,17 +186,190 @@ export function getDefaultModels(provider: AIProvider): AIModel[] {
       { id: "gpt-4.1", name: "gpt-4.1", provider: "openai" },
       { id: "gpt-4.1-mini", name: "gpt-4.1-mini", provider: "openai" },
       { id: "gpt-4.1-nano", name: "gpt-4.1-nano", provider: "openai" },
+      { id: "gpt-5-mini", name: "gpt-5-mini", provider: "openai" },
       { id: "o3-mini", name: "o3-mini", provider: "openai" },
     ];
   }
   return [
+    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "gemini" },
+    { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", provider: "gemini" },
     { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", provider: "gemini" },
     { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash Lite", provider: "gemini" },
-    { id: "gemini-2.5-flash-preview-05-20", name: "Gemini 2.5 Flash Preview", provider: "gemini" },
-    { id: "gemini-2.5-pro-preview-05-06", name: "Gemini 2.5 Pro Preview", provider: "gemini" },
   ];
 }
 
 export function getDefaultModelForProvider(provider: AIProvider): string {
-  return provider === "openai" ? "gpt-4o-mini" : "gemini-2.0-flash";
+  return provider === "openai" ? "gpt-4.1-nano" : "gemini-2.5-flash";
+}
+
+/* ---- Study Material Generation ---- */
+
+const STUDY_PROMPTS: Record<StudyMaterialType, string> = {
+  summary: `You are an expert educator. Given a video transcript, create a comprehensive yet concise summary.
+
+RULES:
+- Write a clear, well-structured summary in markdown format
+- Include key points, main arguments, and important details
+- Use headers, bullet points, and emphasis where appropriate
+- Keep it between 300-600 words
+- Return ONLY the markdown summary text, no JSON wrapping`,
+
+  mindMap: `You are an expert educator. Given a video transcript, create a hierarchical mind map.
+
+RULES:
+- Create a tree structure that captures the main topics and subtopics
+- The root node should be the main topic of the video
+- Each node has a "label" and optional "children" array
+- Keep labels concise (3-8 words)
+- Aim for 3-5 main branches with 2-4 sub-branches each
+- Return ONLY valid JSON
+
+Return JSON in this exact format:
+{
+  "label": "Main Topic",
+  "children": [
+    {
+      "label": "Subtopic 1",
+      "children": [
+        { "label": "Detail A" },
+        { "label": "Detail B" }
+      ]
+    }
+  ]
+}`,
+
+  flashcards: `You are an expert educator. Given a video transcript, create flashcards for studying.
+
+RULES:
+- Create 10-15 flashcards covering key concepts
+- Each card has a "front" (question/prompt) and "back" (answer)
+- Mix different types: definitions, concepts, comparisons
+- Keep answers concise but complete
+- Return ONLY valid JSON
+
+Return JSON in this exact format:
+{
+  "flashcards": [
+    { "front": "What is X?", "back": "X is..." }
+  ]
+}`,
+
+  studyGuide: `You are an expert educator. Given a video transcript, create a comprehensive study guide.
+
+RULES:
+- Create a well-structured study guide in markdown format
+- Include: Learning Objectives, Key Concepts, Detailed Notes, Key Terms/Definitions, Review Questions
+- Use proper markdown formatting with headers
+- Make it thorough enough for exam preparation
+- Return ONLY the markdown text, no JSON wrapping`,
+
+  roadmap: `You are an expert educator. Given a video transcript, create a learning roadmap.
+
+RULES:
+- Create a step-by-step learning path in markdown format
+- Include prerequisites, core topics to master, and next steps
+- Suggest additional resources or topics to explore
+- Use a numbered progression with clear milestones
+- Return ONLY the markdown text, no JSON wrapping`,
+};
+
+function buildStudyPrompt(type: StudyMaterialType, transcript: string): string {
+  const trimmed =
+    transcript.length > 15000
+      ? transcript.substring(0, 15000) + "... [transcript truncated]"
+      : transcript;
+  return `${STUDY_PROMPTS[type]}\n\nTRANSCRIPT:\n${trimmed}`;
+}
+
+async function generateContentWithOpenAI(
+  apiKey: string,
+  prompt: string,
+  model: string,
+  jsonMode: boolean
+): Promise<string> {
+  const client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
+  const response = await client.chat.completions.create({
+    model,
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.7,
+    ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
+  });
+  const content = response.choices[0]?.message?.content;
+  if (!content) throw new Error("No response from OpenAI");
+  return content;
+}
+
+async function generateContentWithGemini(
+  apiKey: string,
+  prompt: string,
+  model: string,
+  jsonMode: boolean
+): Promise<string> {
+  const ai = new GoogleGenAI({ apiKey });
+  const response = await ai.models.generateContent({
+    model,
+    contents: prompt,
+    config: {
+      temperature: 0.7,
+      ...(jsonMode ? { responseMimeType: "application/json" } : {}),
+    },
+  });
+  const content = response.text;
+  if (!content) throw new Error("No response from Gemini");
+  return content;
+}
+
+async function generateContent(
+  provider: AIProvider,
+  apiKey: string,
+  prompt: string,
+  model: string,
+  jsonMode: boolean
+): Promise<string> {
+  if (provider === "openai") {
+    return generateContentWithOpenAI(apiKey, prompt, model, jsonMode);
+  }
+  return generateContentWithGemini(apiKey, prompt, model, jsonMode);
+}
+
+function cleanMarkdown(text: string): string {
+  return text.replace(/^```(?:markdown|md)?\s*/m, "").replace(/```\s*$/m, "").trim();
+}
+
+export async function generateStudyMaterial(
+  type: StudyMaterialType,
+  provider: AIProvider,
+  apiKey: string,
+  transcript: string,
+  model: string
+): Promise<Partial<StudyMaterials>> {
+  const prompt = buildStudyPrompt(type, transcript);
+  const jsonMode = type === "mindMap" || type === "flashcards";
+  const raw = await generateContent(provider, apiKey, prompt, model, jsonMode);
+
+  switch (type) {
+    case "summary":
+      return { summary: cleanMarkdown(raw) };
+    case "studyGuide":
+      return { studyGuide: cleanMarkdown(raw) };
+    case "roadmap":
+      return { roadmap: cleanMarkdown(raw) };
+    case "mindMap": {
+      let jsonStr = raw.trim();
+      const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) jsonStr = fenceMatch[1].trim();
+      const parsed = JSON.parse(jsonStr) as MindMapNode;
+      return { mindMap: parsed };
+    }
+    case "flashcards": {
+      let jsonStr = raw.trim();
+      const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) jsonStr = fenceMatch[1].trim();
+      const parsed = JSON.parse(jsonStr);
+      const cards: Flashcard[] = (parsed.flashcards || parsed).map(
+        (c: Flashcard) => ({ front: c.front, back: c.back })
+      );
+      return { flashcards: cards };
+    }
+  }
 }

@@ -33,10 +33,15 @@ export default function SettingsPage() {
   };
 
   const handleProviderChange = (provider: AIProvider) => {
+    // Save current model for current provider, restore saved model for new provider
+    const currentProvider = settings.selectedProvider;
+    const saveKey = currentProvider === "openai" ? "openaiModel" : "geminiModel";
+    const restoreKey = provider === "openai" ? "openaiModel" : "geminiModel";
     setSettings((prev) => ({
       ...prev,
+      [saveKey]: prev.selectedModel,
       selectedProvider: provider,
-      selectedModel: getDefaultModelForProvider(provider),
+      selectedModel: prev[restoreKey],
     }));
   };
 
