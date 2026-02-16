@@ -6,7 +6,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![transcript::fetch_transcript])
+        .invoke_handler(tauri::generate_handler![
+            transcript::fetch_transcript,
+            transcript::fetch_video_info
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -69,6 +69,12 @@ export interface VideoSession {
   createdAt: string; // ISO string
   quizResults: QuizResult[];
   studyMaterials?: Partial<StudyMaterials>;
+  latestQuiz?: Quiz;
+}
+
+export interface VideoInfo {
+  title: string;
+  author: string;
 }
 
 /* ---- Settings ---- */

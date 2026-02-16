@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   FileText,
@@ -12,10 +12,13 @@ import {
   Trophy,
   FlipVertical,
   ChevronRight,
+  Play,
+  Plus,
+  Maximize2,
 } from "lucide-react";
 import { getVideoSessionById, saveVideoSession, getSettings } from "../services/storage";
-import { generateStudyMaterial, getDefaultModelForProvider } from "../services/ai";
-import { VideoSession, StudyMaterialType, MindMapNode, Flashcard, AppSettings } from "../types";
+import { generateStudyMaterial, generateQuiz, getDefaultModelForProvider } from "../services/ai";
+import { VideoSession, StudyMaterialType, MindMapNode, Flashcard, AppSettings, Quiz } from "../types";
 
 type Tab = StudyMaterialType | "quizHistory";
 
@@ -34,9 +37,10 @@ export default function StudyPage() {
   const [session, setSession] = useState<VideoSession | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("summary");
-  const [generating, setGenerating] = useState(false);
+  const [generatingTab, setGeneratingTab] = useState<Tab | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showVideo, setShowVideo] = useState(false);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -44,6 +48,10 @@ export default function StudyPage() {
       ([s, st]) => {
         setSession(s);
         setSettings(st);
+        // Default to quiz tab when a quiz is ready
+        if (s?.latestQuiz) {
+          setActiveTab("quizHistory");
+        }
         setLoading(false);
       }
     );
@@ -52,7 +60,7 @@ export default function StudyPage() {
   const handleGenerate = useCallback(
     async (type: StudyMaterialType) => {
       if (!session || !settings) return;
-      setGenerating(true);
+      setGeneratingTab(type);
       setError(null);
       try {
         const apiKey =
@@ -82,11 +90,57 @@ export default function StudyPage() {
           err instanceof Error ? err.message : "Failed to generate content"
         );
       } finally {
-        setGenerating(false);
+        setGeneratingTab(null);
       }
     },
     [session, settings]
   );
+
+  const handleGenerateQuiz = useCallback(async () => {
+    if (!session || !settings) return;
+    setGeneratingTab("quizHistory");
+    setError(null);
+    try {
+      const apiKey =
+        settings.selectedProvider === "openai"
+          ? settings.openaiApiKey
+          : settings.geminiApiKey;
+      const model =
+        settings.selectedModel ||
+        getDefaultModelForProvider(settings.selectedProvider);
+
+      const questions = await generateQuiz(
+        settings.selectedProvider,
+        apiKey,
+        session.transcript,
+        settings.questionCount,
+        model
+      );
+
+      const quiz: Quiz = {
+        videoTitle: session.videoTitle,
+        videoUrl: session.videoUrl,
+        questions,
+      };
+
+      const updated: VideoSession = { ...session, latestQuiz: quiz };
+      setSession(updated);
+      await saveVideoSession(updated);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to generate quiz"
+      );
+    } finally {
+      setGeneratingTab(null);
+    }
+  }, [session, settings]);
+
+  const handleStartQuiz = useCallback(() => {
+    if (!session?.latestQuiz) return;
+    navigate("/quiz", {
+      state: { quiz: session.latestQuiz, sessionId: session.id },
+    });
+  }, [session, navigate]);
 
   if (loading) {
     return (
@@ -117,9 +171,10 @@ export default function StudyPage() {
   }
 
   const materials = session.studyMaterials || {};
+  const isGenerating = generatingTab !== null;
 
   const hasContent = (tab: Tab): boolean => {
-    if (tab === "quizHistory") return session.quizResults.length > 0;
+    if (tab === "quizHistory") return session.quizResults.length > 0 || !!session.latestQuiz;
     return !!materials[tab];
   };
 
@@ -127,15 +182,20 @@ export default function StudyPage() {
     <div className="page study-page">
       {/* Header */}
       <div className="study-header">
-        <button className="btn-back" onClick={() => navigate(-1)}>
+        <button className="btn-back" onClick={() => navigate("/history")}>
           <ChevronLeft size={20} />
         </button>
         <div className="study-video-info">
-          <img
-            src={session.thumbnailUrl}
-            alt={session.videoTitle}
-            className="study-thumb"
-          />
+          <div className="study-thumb-wrapper" onClick={() => setShowVideo(!showVideo)}>
+            <img
+              src={session.thumbnailUrl}
+              alt={session.videoTitle}
+              className="study-thumb"
+            />
+            <div className="study-thumb-play">
+              <Play size={16} />
+            </div>
+          </div>
           <div>
             <h1 className="study-title">{session.videoTitle}</h1>
             <p className="study-date">
@@ -144,6 +204,19 @@ export default function StudyPage() {
           </div>
         </div>
       </div>
+
+      {/* YouTube Embed */}
+      {showVideo && (
+        <div className="video-embed-container">
+          <iframe
+            src={`https://www.youtube.com/embed/${session.videoId}?autoplay=1`}
+            title={session.videoTitle}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className="video-embed"
+          />
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="study-tabs">
@@ -155,7 +228,11 @@ export default function StudyPage() {
             }`}
             onClick={() => setActiveTab(tab.key)}
           >
-            {tab.icon}
+            {generatingTab === tab.key ? (
+              <Loader2 size={14} className="spin" />
+            ) : (
+              tab.icon
+            )}
             <span>{tab.label}</span>
             {hasContent(tab.key) && <span className="tab-dot" />}
           </button>
@@ -172,14 +249,30 @@ export default function StudyPage() {
       {/* Tab Content */}
       <div className="study-content">
         {activeTab === "quizHistory" ? (
-          <QuizHistoryTab session={session} navigate={navigate} />
+          <QuizHistoryTab
+            session={session}
+            navigate={navigate}
+            onGenerateQuiz={handleGenerateQuiz}
+            onStartQuiz={handleStartQuiz}
+            isGenerating={generatingTab === "quizHistory"}
+          />
+        ) : generatingTab === activeTab ? (
+          <div className="generate-prompt">
+            <Loader2 size={32} className="spin generate-icon-svg" />
+            <h3>Generating {TAB_CONFIG.find((t) => t.key === activeTab)?.label}...</h3>
+            <p>AI is analyzing the video transcript. This may take a moment.</p>
+          </div>
         ) : hasContent(activeTab) ? (
           <div className="study-material-content">
-            <div className="material-actions">
+            <div className="material-header">
+              <h3 className="material-title">
+                {TAB_CONFIG.find((t) => t.key === activeTab)?.icon}
+                {TAB_CONFIG.find((t) => t.key === activeTab)?.label}
+              </h3>
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={() => handleGenerate(activeTab)}
-                disabled={generating}
+                disabled={isGenerating}
               >
                 <RotateCcw size={14} />
                 <span>Regenerate</span>
@@ -195,7 +288,7 @@ export default function StudyPage() {
               <MarkdownContent content={materials.roadmap || ""} />
             )}
             {activeTab === "mindMap" && materials.mindMap && (
-              <MindMapView node={materials.mindMap} />
+              <MarkmapDiagram node={materials.mindMap} />
             )}
             {activeTab === "flashcards" && materials.flashcards && (
               <FlashcardsView cards={materials.flashcards} />
@@ -217,18 +310,9 @@ export default function StudyPage() {
             <button
               className="btn btn-primary"
               onClick={() => handleGenerate(activeTab as StudyMaterialType)}
-              disabled={generating}
+              disabled={isGenerating}
             >
-              {generating ? (
-                <>
-                  <Loader2 size={18} className="spin" />
-                  <span>Generating...</span>
-                </>
-              ) : (
-                <>
-                  <span>Generate Now</span>
-                </>
-              )}
+              Generate Now
             </button>
           </div>
         )}
@@ -263,48 +347,65 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function MindMapView({ node }: { node: MindMapNode }) {
-  return (
-    <div className="mindmap-container">
-      <MindMapNodeView node={node} depth={0} />
-    </div>
-  );
+/* ---- Markmap Diagram ---- */
+
+interface IMarkmapNode {
+  content: string;
+  children: IMarkmapNode[];
 }
 
-function MindMapNodeView({
-  node,
-  depth,
-}: {
-  node: MindMapNode;
-  depth: number;
-}) {
-  const [expanded, setExpanded] = useState(depth < 2);
-  const hasChildren = node.children && node.children.length > 0;
-  const depthClass = `depth-${Math.min(depth, 4)}`;
+function convertToMarkmapNode(node: MindMapNode): IMarkmapNode {
+  return {
+    content: node.label,
+    children: node.children?.map(convertToMarkmapNode) ?? [],
+  };
+}
+
+function MarkmapDiagram({ node }: { node: MindMapNode }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const mmRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!svgRef.current) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { Markmap } = await import("markmap-view");
+        if (cancelled || !svgRef.current) return;
+
+        svgRef.current.innerHTML = "";
+
+        const data = convertToMarkmapNode(node);
+        mmRef.current = Markmap.create(svgRef.current, {
+          autoFit: true,
+          duration: 500,
+          zoom: true,
+          pan: true,
+        }, data as any);
+      } catch (err) {
+        console.error("Failed to load markmap:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (mmRef.current?.destroy) mmRef.current.destroy();
+    };
+  }, [node]);
+
+  const handleFit = () => {
+    if (mmRef.current?.fit) mmRef.current.fit();
+  };
 
   return (
-    <div className={`mindmap-node ${depthClass}`}>
-      <button
-        className={`mindmap-label ${hasChildren ? "expandable" : ""} ${
-          expanded ? "expanded" : ""
-        }`}
-        onClick={() => hasChildren && setExpanded(!expanded)}
-      >
-        {hasChildren && (
-          <ChevronRight
-            size={14}
-            className={`mindmap-arrow ${expanded ? "rotated" : ""}`}
-          />
-        )}
-        <span>{node.label}</span>
-      </button>
-      {expanded && hasChildren && (
-        <div className="mindmap-children">
-          {node.children!.map((child, i) => (
-            <MindMapNodeView key={i} node={child} depth={depth + 1} />
-          ))}
-        </div>
-      )}
+    <div className="markmap-diagram-container">
+      <div className="markmap-toolbar">
+        <button className="markmap-btn" onClick={handleFit} title="Fit to View">
+          <Maximize2 size={14} />
+        </button>
+      </div>
+      <svg ref={svgRef} className="markmap-svg" />
     </div>
   );
 }
@@ -371,65 +472,120 @@ function FlashcardsView({ cards }: { cards: Flashcard[] }) {
 function QuizHistoryTab({
   session,
   navigate,
+  onGenerateQuiz,
+  onStartQuiz,
+  isGenerating,
 }: {
   session: VideoSession;
   navigate: ReturnType<typeof useNavigate>;
+  onGenerateQuiz: () => void;
+  onStartQuiz: () => void;
+  isGenerating: boolean;
 }) {
-  if (session.quizResults.length === 0) {
-    return (
-      <div className="generate-prompt">
-        <Trophy size={32} className="generate-icon-svg" />
-        <h3>No Quizzes Yet</h3>
-        <p>Generate a quiz from the home page to see your results here.</p>
-        <button className="btn btn-primary" onClick={() => navigate("/")}>
-          Generate Quiz
-        </button>
-      </div>
-    );
-  }
+  const hasQuiz = !!session.latestQuiz;
+  const hasHistory = session.quizResults.length > 0;
 
   return (
-    <div className="quiz-history-list">
-      {session.quizResults
-        .slice()
-        .reverse()
-        .map((result, i) => {
-          const pct = Math.round(
-            (result.score / result.totalQuestions) * 100
-          );
-          const color =
-            pct >= 70
-              ? "var(--color-success)"
-              : pct >= 50
-                ? "var(--color-warning)"
-                : "var(--color-error)";
-          return (
-            <div key={i} className="quiz-history-item">
-              <div className="quiz-history-score" style={{ color }}>
-                {pct}%
+    <div className="quiz-history-content">
+      {/* Quiz Action Card */}
+      <div className="quiz-action-card">
+        {hasQuiz ? (
+          <>
+            <div className="quiz-action-ready">
+              <Play size={24} className="quiz-action-icon" />
+              <div>
+                <h3>Quiz Ready</h3>
+                <p>{session.latestQuiz!.questions.length} questions generated</p>
               </div>
-              <div className="quiz-history-info">
-                <div className="quiz-history-detail">
-                  {result.score}/{result.totalQuestions} correct
-                </div>
-                <div className="quiz-history-date">
-                  {new Date(result.completedAt).toLocaleString()}
-                </div>
-              </div>
+            </div>
+            <div className="quiz-action-buttons">
+              <button className="btn btn-primary" onClick={onStartQuiz}>
+                <Play size={16} />
+                Start Quiz
+              </button>
               <button
-                className="btn btn-secondary btn-sm"
-                onClick={() =>
-                  navigate("/quiz", {
-                    state: { quiz: result.quiz, sessionId: session.id },
-                  })
-                }
+                className="btn btn-secondary"
+                onClick={onGenerateQuiz}
+                disabled={isGenerating}
               >
-                <RotateCcw size={14} />
-                Retry
+                {isGenerating ? (
+                  <><Loader2 size={16} className="spin" /> Generating...</>
+                ) : (
+                  <><Plus size={16} /> New Quiz</>
+                )}
               </button>
             </div>
-          );
-        })}
+          </>
+        ) : (
+          <div className="generate-prompt compact">
+            <Trophy size={28} className="generate-icon-svg" />
+            <h3>Generate a Quiz</h3>
+            <p>Test your understanding of this video with AI-generated questions.</p>
+            <button
+              className="btn btn-primary"
+              onClick={onGenerateQuiz}
+              disabled={isGenerating}
+            >
+              {isGenerating ? (
+                <><Loader2 size={16} className="spin" /> Generating...</>
+              ) : (
+                <><Plus size={16} /> Generate Quiz</>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Quiz History */}
+      {hasHistory && (
+        <div className="quiz-history-section">
+          <h3 className="quiz-history-heading">
+            Past Attempts ({session.quizResults.length})
+          </h3>
+          <div className="quiz-history-list">
+            {session.quizResults
+              .slice()
+              .reverse()
+              .map((result, i) => {
+                const pct = Math.round(
+                  (result.score / result.totalQuestions) * 100
+                );
+                const color =
+                  pct >= 70
+                    ? "var(--color-success)"
+                    : pct >= 50
+                      ? "var(--color-warning)"
+                      : "var(--color-error)";
+                return (
+                  <div key={i} className="quiz-history-item">
+                    <div className="quiz-history-score" style={{ color }}>
+                      {pct}%
+                    </div>
+                    <div className="quiz-history-info">
+                      <div className="quiz-history-detail">
+                        {result.score}/{result.totalQuestions} correct
+                      </div>
+                      <div className="quiz-history-date">
+                        {new Date(result.completedAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() =>
+                        navigate("/quiz", {
+                          state: { quiz: result.quiz, sessionId: session.id },
+                        })
+                      }
+                    >
+                      <RotateCcw size={14} />
+                      Retry
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

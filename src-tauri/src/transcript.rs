@@ -14,6 +14,12 @@ pub struct TranscriptSegment {
     pub lang: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VideoInfo {
+    pub title: String,
+    pub author: String,
+}
+
 fn decode_xml_entities(text: &str) -> String {
     text.replace("&amp;", "&")
         .replace("&lt;", "<")
@@ -227,4 +233,46 @@ pub async fn fetch_transcript(video_id: String) -> Result<Vec<TranscriptSegment>
     }
 
     Ok(segments)
+}
+
+#[tauri::command]
+pub async fn fetch_video_info(video_id: String) -> Result<VideoInfo, String> {
+    let client = build_client()?;
+
+    let oembed_url = format!(
+        "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={}&format=json",
+        video_id
+    );
+
+    let res = client
+        .get(&oembed_url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch video info: {}", e))?;
+
+    if !res.status().is_success() {
+        return Ok(VideoInfo {
+            title: format!("YouTube Video ({})", video_id),
+            author: String::new(),
+        });
+    }
+
+    let body: serde_json::Value = res
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse video info: {}", e))?;
+
+    let title = body
+        .get("title")
+        .and_then(|t| t.as_str())
+        .unwrap_or(&video_id)
+        .to_string();
+
+    let author = body
+        .get("author_name")
+        .and_then(|a| a.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(VideoInfo { title, author })
 }

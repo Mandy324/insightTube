@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { TranscriptSegment } from "../types";
+import { TranscriptSegment, VideoInfo } from "../types";
 
 /**
  * Fetches the transcript for a YouTube video by calling the Rust backend.
@@ -51,4 +51,12 @@ export function extractVideoId(url: string): string | null {
 
 export function getVideoThumbnail(videoId: string): string {
   return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+export async function getVideoInfo(videoId: string): Promise<VideoInfo> {
+  try {
+    return await invoke<VideoInfo>("fetch_video_info", { videoId });
+  } catch {
+    return { title: `YouTube Video (${videoId})`, author: "" };
+  }
 }

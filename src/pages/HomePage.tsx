@@ -3,12 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { Sparkles, AlertCircle, BookOpen, Zap, Brain } from "lucide-react";
 import VideoInput from "../components/VideoInput";
 import ModelSelector from "../components/ModelSelector";
-import { getTranscript, transcriptToText, extractVideoId, getVideoThumbnail } from "../services/transcript";
+import { getTranscript, transcriptToText, extractVideoId, getVideoThumbnail, getVideoInfo } from "../services/transcript";
 import { generateQuiz, getDefaultModelForProvider } from "../services/ai";
 import { getSettings, saveSettings, getVideoSessionByVideoId, saveVideoSession } from "../services/storage";
 import { Quiz, AppSettings } from "../types";
 
-type Stage = "idle" | "transcript" | "generating" | "done";
+type Stage = "idle" | "transcript" | "info" | "generating" | "done";
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -55,9 +55,21 @@ export default function HomePage() {
 
       setThumbnail(getVideoThumbnail(videoId));
 
-      // Step 1: Fetch transcript
+      // Check if session already exists
+      let session = await getVideoSessionByVideoId(videoId);
+      if (session) {
+        // Already processed — go straight to study page
+        navigate(`/study/${session.id}`);
+        return;
+      }
+
+      // Step 1: Fetch transcript + video info in parallel
       setStage("transcript");
-      const transcript = await getTranscript(url);
+      const [transcript, videoInfo] = await Promise.all([
+        getTranscript(url),
+        getVideoInfo(videoId),
+      ]);
+
       if (!transcript.length) {
         throw new Error("No transcript found for this video. The video may not have captions available.");
       }
@@ -82,32 +94,30 @@ export default function HomePage() {
       );
 
       const quiz: Quiz = {
-        videoTitle: `YouTube Video (${videoId})`,
+        videoTitle: videoInfo.title,
         videoUrl: url,
         questions,
       };
 
-      // Persist the video session
-      let session = await getVideoSessionByVideoId(videoId);
-      if (!session) {
-        session = {
-          id: crypto.randomUUID(),
-          videoId,
-          videoUrl: url,
-          videoTitle: quiz.videoTitle,
-          thumbnailUrl: getVideoThumbnail(videoId),
-          transcript: transcriptText,
-          createdAt: new Date().toISOString(),
-          quizResults: [],
-          studyMaterials: {},
-        };
-        await saveVideoSession(session);
-      }
+      // Persist the video session with quiz
+      session = {
+        id: crypto.randomUUID(),
+        videoId,
+        videoUrl: url,
+        videoTitle: videoInfo.title,
+        thumbnailUrl: getVideoThumbnail(videoId),
+        transcript: transcriptText,
+        createdAt: new Date().toISOString(),
+        quizResults: [],
+        studyMaterials: {},
+        latestQuiz: quiz,
+      };
+      await saveVideoSession(session);
 
       setStage("done");
 
-      // Navigate to quiz page with quiz data and session id
-      navigate("/quiz", { state: { quiz, sessionId: session.id } });
+      // Navigate to study page — user can start quiz or generate study materials
+      navigate(`/study/${session.id}`);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "An unexpected error occurred";
@@ -121,7 +131,7 @@ export default function HomePage() {
   const getStageMessage = () => {
     switch (stage) {
       case "transcript":
-        return "Fetching video transcript...";
+        return "Fetching video transcript & info...";
       case "generating":
         return "AI is generating your quiz...";
       default:
