@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
-import { AIProvider, QuizQuestion } from "../types";
+import { AIProvider, AIModel, QuizQuestion } from "../types";
 
 const QUIZ_SYSTEM_PROMPT = `You are an expert educator. Given a video transcript, generate a quiz to test comprehension.
 
@@ -60,7 +60,8 @@ function parseQuizResponse(text: string): QuizQuestion[] {
 async function generateWithOpenAI(
   apiKey: string,
   transcript: string,
-  count: number
+  count: number,
+  model: string
 ): Promise<QuizQuestion[]> {
   const client = new OpenAI({
     apiKey,
@@ -68,7 +69,7 @@ async function generateWithOpenAI(
   });
 
   const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model,
     messages: [
       {
         role: "user",
@@ -88,12 +89,13 @@ async function generateWithOpenAI(
 async function generateWithGemini(
   apiKey: string,
   transcript: string,
-  count: number
+  count: number,
+  model: string
 ): Promise<QuizQuestion[]> {
   const ai = new GoogleGenAI({ apiKey });
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
+    model,
     contents: buildPrompt(transcript, count),
     config: {
       temperature: 0.7,
@@ -111,11 +113,90 @@ export async function generateQuiz(
   provider: AIProvider,
   apiKey: string,
   transcript: string,
-  questionCount: number
+  questionCount: number,
+  model: string
 ): Promise<QuizQuestion[]> {
   if (provider === "openai") {
-    return generateWithOpenAI(apiKey, transcript, questionCount);
+    return generateWithOpenAI(apiKey, transcript, questionCount, model);
   } else {
-    return generateWithGemini(apiKey, transcript, questionCount);
+    return generateWithGemini(apiKey, transcript, questionCount, model);
   }
+}
+
+/* ---- Model Listing ---- */
+
+const OPENAI_CHAT_PREFIXES = ["gpt-4", "gpt-3.5", "o1", "o3", "o4", "chatgpt"];
+
+async function listOpenAIModels(apiKey: string): Promise<AIModel[]> {
+  const client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
+  const page = await client.models.list();
+  const models: AIModel[] = [];
+  for await (const m of page) {
+    const id = m.id;
+    if (OPENAI_CHAT_PREFIXES.some((p) => id.startsWith(p))) {
+      models.push({ id, name: id, provider: "openai" });
+    }
+  }
+  models.sort((a, b) => a.id.localeCompare(b.id));
+  return models;
+}
+
+async function listGeminiModels(apiKey: string): Promise<AIModel[]> {
+  const ai = new GoogleGenAI({ apiKey });
+  const pager = await ai.models.list({ config: { pageSize: 100 } });
+  const models: AIModel[] = [];
+  for (const m of pager.page) {
+    const id = m.name ?? "";
+    const shortId = id.replace(/^models\//, "");
+    const displayName = m.displayName ?? shortId;
+    // Only include generative models (not embeddings, etc.)
+    const supported = m.supportedActions ?? [];
+    const canGenerate =
+      supported.includes("generateContent") ||
+      shortId.startsWith("gemini");
+    if (canGenerate) {
+      models.push({ id: shortId, name: displayName, provider: "gemini" });
+    }
+  }
+  models.sort((a, b) => a.name.localeCompare(b.name));
+  return models;
+}
+
+export async function listModels(
+  provider: AIProvider,
+  apiKey: string
+): Promise<AIModel[]> {
+  try {
+    if (provider === "openai") {
+      return await listOpenAIModels(apiKey);
+    } else {
+      return await listGeminiModels(apiKey);
+    }
+  } catch (err) {
+    console.error(`Failed to list ${provider} models:`, err);
+    return getDefaultModels(provider);
+  }
+}
+
+export function getDefaultModels(provider: AIProvider): AIModel[] {
+  if (provider === "openai") {
+    return [
+      { id: "gpt-4o", name: "gpt-4o", provider: "openai" },
+      { id: "gpt-4o-mini", name: "gpt-4o-mini", provider: "openai" },
+      { id: "gpt-4.1", name: "gpt-4.1", provider: "openai" },
+      { id: "gpt-4.1-mini", name: "gpt-4.1-mini", provider: "openai" },
+      { id: "gpt-4.1-nano", name: "gpt-4.1-nano", provider: "openai" },
+      { id: "o3-mini", name: "o3-mini", provider: "openai" },
+    ];
+  }
+  return [
+    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", provider: "gemini" },
+    { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash Lite", provider: "gemini" },
+    { id: "gemini-2.5-flash-preview-05-20", name: "Gemini 2.5 Flash Preview", provider: "gemini" },
+    { id: "gemini-2.5-pro-preview-05-06", name: "Gemini 2.5 Pro Preview", provider: "gemini" },
+  ];
+}
+
+export function getDefaultModelForProvider(provider: AIProvider): string {
+  return provider === "openai" ? "gpt-4o-mini" : "gemini-2.0-flash";
 }

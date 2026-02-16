@@ -1009,3 +1009,198 @@ a:hover {
   margin-bottom: 24px;
 }
 
+/* ---- Model Selector ---- */
+.model-selector-wrapper {
+  position: relative;
+  margin-top: 12px;
+}
+
+.model-selector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.model-selector-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.model-hint {
+  font-weight: 400;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.model-refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.model-refresh-btn:hover {
+  border-color: var(--border-color-hover);
+  color: var(--text-secondary);
+  background: var(--bg-input);
+}
+
+.model-refresh-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.model-selector {
+  position: relative;
+}
+
+.model-selector.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.model-selector-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: left;
+}
+
+.model-selector-trigger:hover:not(:disabled) {
+  border-color: var(--border-color-hover);
+}
+
+.model-selector.open .model-selector-trigger {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-glow);
+}
+
+.model-selected-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-chevron {
+  transition: transform var(--transition);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.model-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.model-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  padding: 4px;
+}
+
+.model-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.model-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.model-dropdown::-webkit-scrollbar-thumb {
+  background: var(--border-color-hover);
+  border-radius: 3px;
+}
+
+.model-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition);
+  font-family: inherit;
+}
+
+.model-option:hover {
+  background: var(--bg-card-hover);
+}
+
+.model-option.active {
+  background: var(--color-primary-glow);
+}
+
+.model-option.empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  cursor: default;
+}
+
+.model-option-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.model-option-id {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+
+.model-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
+/* Spin animation for loading */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+

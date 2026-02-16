@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, AlertCircle, BookOpen, Zap, Brain } from "lucide-react";
 import VideoInput from "../components/VideoInput";
+import ModelSelector from "../components/ModelSelector";
 import { getTranscript, transcriptToText, extractVideoId, getVideoThumbnail } from "../services/transcript";
-import { generateQuiz } from "../services/ai";
-import { getSettings } from "../services/storage";
+import { generateQuiz, getDefaultModelForProvider } from "../services/ai";
+import { getSettings, saveSettings } from "../services/storage";
 import { Quiz, AppSettings } from "../types";
 
 type Stage = "idle" | "transcript" | "generating" | "done";
@@ -26,6 +27,19 @@ export default function HomePage() {
       ? !!settings.openaiApiKey
       : !!settings.geminiApiKey
     : false;
+
+  const currentApiKey = settings
+    ? settings.selectedProvider === "openai"
+      ? settings.openaiApiKey
+      : settings.geminiApiKey
+    : "";
+
+  const handleModelChange = (modelId: string) => {
+    if (!settings) return;
+    const updated = { ...settings, selectedModel: modelId };
+    setSettings(updated);
+    saveSettings(updated);
+  };
 
   const handleSubmit = async (url: string) => {
     if (!settings) return;
@@ -57,11 +71,14 @@ export default function HomePage() {
           ? settings.openaiApiKey
           : settings.geminiApiKey;
 
+      const model = settings.selectedModel || getDefaultModelForProvider(settings.selectedProvider);
+
       const questions = await generateQuiz(
         settings.selectedProvider,
         apiKey,
         transcriptText,
-        settings.questionCount
+        settings.questionCount,
+        model
       );
 
       const quiz: Quiz = {
@@ -125,6 +142,16 @@ export default function HomePage() {
       )}
 
       <VideoInput onSubmit={handleSubmit} isLoading={isLoading} />
+
+      {settings && (
+        <ModelSelector
+          provider={settings.selectedProvider}
+          apiKey={currentApiKey}
+          selectedModel={settings.selectedModel}
+          onModelChange={handleModelChange}
+          disabled={isLoading}
+        />
+      )}
 
       {isLoading && (
         <div className="loading-state">

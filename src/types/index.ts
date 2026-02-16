@@ -29,10 +29,17 @@ export interface QuizResult {
 
 export type AIProvider = "openai" | "gemini";
 
+export interface AIModel {
+  id: string;
+  name: string;
+  provider: AIProvider;
+}
+
 export interface AppSettings {
   openaiApiKey: string;
   geminiApiKey: string;
   selectedProvider: AIProvider;
+  selectedModel: string;
   questionCount: number;
 }
 
@@ -40,5 +47,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openaiApiKey: "",
   geminiApiKey: "",
   selectedProvider: "gemini",
+  selectedModel: "gemini-2.0-flash",
   questionCount: 10,
 };

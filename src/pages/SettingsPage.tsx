@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Save, Eye, EyeOff, CheckCircle, Key, Cpu, Hash } from "lucide-react";
+import ModelSelector from "../components/ModelSelector";
 import { getSettings, saveSettings } from "../services/storage";
+import { getDefaultModelForProvider } from "../services/ai";
 import { AppSettings, DEFAULT_SETTINGS, AIProvider } from "../types";
 
 export default function SettingsPage() {
@@ -29,6 +31,19 @@ export default function SettingsPage() {
   ) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
+
+  const handleProviderChange = (provider: AIProvider) => {
+    setSettings((prev) => ({
+      ...prev,
+      selectedProvider: provider,
+      selectedModel: getDefaultModelForProvider(provider),
+    }));
+  };
+
+  const currentApiKey =
+    settings.selectedProvider === "openai"
+      ? settings.openaiApiKey
+      : settings.geminiApiKey;
 
   if (loading) {
     return (
@@ -63,14 +78,16 @@ export default function SettingsPage() {
               <button
                 key={provider}
                 className={`provider-card ${settings.selectedProvider === provider ? "active" : ""}`}
-                onClick={() => updateSetting("selectedProvider", provider)}
+                onClick={() => handleProviderChange(provider)}
               >
                 <div className="provider-card-inner">
                   <div className="provider-name">
                     {provider === "openai" ? "OpenAI" : "Google Gemini"}
                   </div>
                   <div className="provider-model">
-                    {provider === "openai" ? "GPT-4o Mini" : "Gemini 2.0 Flash"}
+                    {provider === settings.selectedProvider
+                      ? settings.selectedModel
+                      : getDefaultModelForProvider(provider)}
                   </div>
                 </div>
                 {settings.selectedProvider === provider && (
@@ -79,6 +96,13 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+
+          <ModelSelector
+            provider={settings.selectedProvider}
+            apiKey={currentApiKey}
+            selectedModel={settings.selectedModel}
+            onModelChange={(modelId) => updateSetting("selectedModel", modelId)}
+          />
         </section>
 
         {/* API Keys */}
