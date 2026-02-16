@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "insighttube",
-        "width": 800,
-        "height": 600
+        "title": "InsightTube",
+        "width": 1100,
+        "height": 750,
+        "minWidth": 900,
+        "minHeight": 600
       }
     ],
     "security": {
