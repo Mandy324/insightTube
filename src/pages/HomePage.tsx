@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, AlertCircle, BookOpen, Zap, Brain } from "lucide-react";
+import { AlertCircle, Play, Clock } from "lucide-react";
 import VideoInput from "../components/VideoInput";
 import ModelSelector from "../components/ModelSelector";
 import { getTranscript, transcriptToText, extractVideoId, getVideoThumbnail, getVideoInfo } from "../services/transcript";
 import { generateQuiz, getDefaultModelForProvider } from "../services/ai";
-import { getSettings, saveSettings, getVideoSessionByVideoId, saveVideoSession } from "../services/storage";
-import { Quiz, AppSettings } from "../types";
+import { getSettings, saveSettings, getVideoSessionByVideoId, saveVideoSession, getVideoSessions } from "../services/storage";
+import { Quiz, AppSettings, VideoSession } from "../types";
 
 type Stage = "idle" | "transcript" | "info" | "generating" | "done";
 
@@ -17,9 +17,11 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
   const [thumbnail, setThumbnail] = useState<string | null>(null);
+  const [recentSessions, setRecentSessions] = useState<VideoSession[]>([]);
 
   useEffect(() => {
     getSettings().then(setSettings);
+    getVideoSessions().then((sessions) => setRecentSessions(sessions.slice(0, 6)));
   }, []);
 
   const hasApiKey = settings
@@ -59,7 +61,7 @@ export default function HomePage() {
       let session = await getVideoSessionByVideoId(videoId);
       if (session) {
         // Already processed — go straight to study page
-        navigate(`/study/${session.id}`);
+        navigate(`/study/${session.id}?tab=quizHistory`);
         return;
       }
 
@@ -97,6 +99,8 @@ export default function HomePage() {
         videoTitle: videoInfo.title,
         videoUrl: url,
         questions,
+        version: 1,
+        createdAt: new Date().toISOString(),
       };
 
       // Persist the video session with quiz
@@ -116,8 +120,8 @@ export default function HomePage() {
 
       setStage("done");
 
-      // Navigate to study page — user can start quiz or generate study materials
-      navigate(`/study/${session.id}`);
+      // Navigate to study page — quiz tab
+      navigate(`/study/${session.id}?tab=quizHistory`);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "An unexpected error occurred";
@@ -143,12 +147,12 @@ export default function HomePage() {
     <div className="page home-page">
       <div className="home-hero">
         <div className="hero-glow" />
-        <Sparkles size={40} className="hero-icon" />
+        <img src="/logo.svg" alt="InsightTube" className="hero-logo" />
         <h1 className="hero-title">
-          Turn Videos Into <span className="gradient-text">Interactive Quizzes</span>
+          Turn Videos Into <span className="gradient-text">Knowledge</span>
         </h1>
         <p className="hero-subtitle">
-          Paste any YouTube link and let AI transform it into a comprehensive quiz to test your understanding.
+          Paste any YouTube link to generate quizzes, study guides, flashcards, and mind maps.
         </p>
       </div>
 
@@ -168,17 +172,19 @@ export default function HomePage() {
         </div>
       )}
 
-      <VideoInput onSubmit={handleSubmit} isLoading={isLoading} />
+      <div className="home-input-section">
+        <VideoInput onSubmit={handleSubmit} isLoading={isLoading} />
 
-      {settings && (
-        <ModelSelector
-          provider={settings.selectedProvider}
-          apiKey={currentApiKey}
-          selectedModel={settings.selectedModel}
-          onModelChange={handleModelChange}
-          disabled={isLoading}
-        />
-      )}
+        {settings && (
+          <ModelSelector
+            provider={settings.selectedProvider}
+            apiKey={currentApiKey}
+            selectedModel={settings.selectedModel}
+            onModelChange={handleModelChange}
+            disabled={isLoading}
+          />
+        )}
+      </div>
 
       {isLoading && (
         <div className="loading-state">
@@ -206,23 +212,36 @@ export default function HomePage() {
         </div>
       )}
 
-      <div className="features-grid">
-        <div className="feature-card">
-          <BookOpen size={28} className="feature-icon" />
-          <h3>Smart Extraction</h3>
-          <p>Automatically extracts transcripts from any YouTube video with captions.</p>
+      {!isLoading && recentSessions.length > 0 && (
+        <div className="recent-videos-section">
+          <h3 className="recent-heading">
+            <Clock size={16} />
+            Recent Videos
+          </h3>
+          <div className="recent-videos-grid">
+            {recentSessions.map((session) => (
+              <div
+                key={session.id}
+                className="recent-video-card"
+                onClick={() => navigate(`/study/${session.id}`)}
+              >
+                <div className="recent-video-thumb">
+                  <img src={session.thumbnailUrl} alt={session.videoTitle} />
+                  <div className="recent-video-play">
+                    <Play size={14} />
+                  </div>
+                </div>
+                <div className="recent-video-info">
+                  <div className="recent-video-title">{session.videoTitle}</div>
+                  <div className="recent-video-meta">
+                    {new Date(session.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="feature-card">
-          <Brain size={28} className="feature-icon" />
-          <h3>AI-Powered Quizzes</h3>
-          <p>Generates targeted questions that test real comprehension, not just memorization.</p>
-        </div>
-        <div className="feature-card">
-          <Zap size={28} className="feature-icon" />
-          <h3>Instant Feedback</h3>
-          <p>Get immediate explanations for every answer to reinforce your learning.</p>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

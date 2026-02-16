@@ -1,6 +1,75 @@
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
-import { AIProvider, AIModel, QuizQuestion, StudyMaterials, Flashcard, MindMapNode, StudyMaterialType } from "../types";
+import { AIProvider, AIModel, QuizQuestion, StudyMaterials, Flashcard, MindMapNode, StudyMaterialType, ChatMessage } from "../types";
+
+/* ---- Error Helpers ---- */
+
+/** Parse API errors into clean user-facing messages */
+function parseAIError(err: unknown, provider: AIProvider): string {
+  // Already a clean string
+  if (typeof err === "string") return err;
+
+  const raw = err instanceof Error ? err.message : String(err);
+
+  // Try to extract JSON error body (Gemini often returns raw JSON)
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      // Gemini error format: { error: { message, status, code } }
+      if (parsed?.error?.message) {
+        const msg = parsed.error.message as string;
+        if (parsed.error.code === 429 || parsed.error.status === "RESOURCE_EXHAUSTED") {
+          return "Rate limit exceeded. You've hit your API quota. Please wait a moment and try again, or check your API plan.";
+        }
+        if (parsed.error.code === 403) {
+          return "Access denied. Please check your API key permissions.";
+        }
+        if (parsed.error.code === 400) {
+          return `Invalid request: ${msg.slice(0, 150)}`;
+        }
+        return msg.slice(0, 200);
+      }
+      // OpenAI error format: { error: { message, type, code } }
+      if (parsed?.message) {
+        return parsed.message.slice(0, 200);
+      }
+    }
+  } catch {
+    // Not JSON, continue with string matching
+  }
+
+  // Common error patterns
+  const lower = raw.toLowerCase();
+  if (lower.includes("429") || lower.includes("rate limit") || lower.includes("quota") || lower.includes("resource_exhausted")) {
+    return "Rate limit exceeded. You've hit your API quota. Please wait a moment and try again.";
+  }
+  if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("invalid api key") || lower.includes("api_key_invalid")) {
+    return "Invalid API key. Please check your API key in Settings.";
+  }
+  if (lower.includes("403") || lower.includes("forbidden") || lower.includes("permission")) {
+    return "Access denied. Your API key may not have the required permissions.";
+  }
+  if (lower.includes("404") || lower.includes("not found") || lower.includes("model not found")) {
+    return "Model not found. The selected model may not be available. Try a different model in Settings.";
+  }
+  if (lower.includes("500") || lower.includes("internal server error") || lower.includes("internal error")) {
+    return `${provider === "openai" ? "OpenAI" : "Gemini"} service error. Please try again in a moment.`;
+  }
+  if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("deadline")) {
+    return "Request timed out. The transcript may be too long, or the service is busy. Please try again.";
+  }
+  if (lower.includes("network") || lower.includes("fetch") || lower.includes("econnrefused")) {
+    return "Network error. Please check your internet connection and try again.";
+  }
+
+  // Fallback: truncate the message and clean it
+  const cleaned = raw.replace(/\{[\s\S]*\}/, "").trim();
+  if (cleaned.length > 0 && cleaned.length < 200) {
+    return cleaned;
+  }
+  return `An error occurred with ${provider === "openai" ? "OpenAI" : "Gemini"}. Please try again.`;
+}
 
 const QUIZ_SYSTEM_PROMPT = `You are an expert educator. Given a video transcript, generate a quiz to test comprehension.
 
@@ -33,6 +102,22 @@ function buildPrompt(transcript: string, count: number): string {
   return `${systemPrompt}\n\nTRANSCRIPT:\n${trimmed}`;
 }
 
+/** Fisher-Yates shuffle options so the correct answer isn't always in the same slot */
+function shuffleOptions(questions: QuizQuestion[]): QuizQuestion[] {
+  return questions.map((q) => {
+    const indices = q.options.map((_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    return {
+      ...q,
+      options: indices.map((i) => q.options[i]),
+      correctAnswer: indices.indexOf(q.correctAnswer),
+    };
+  });
+}
+
 function parseQuizResponse(text: string): QuizQuestion[] {
   // Try to extract JSON from the response
   let jsonStr = text.trim();
@@ -54,7 +139,7 @@ function parseQuizResponse(text: string): QuizQuestion[] {
     })
   );
 
-  return questions;
+  return shuffleOptions(questions);
 }
 
 async function generateWithOpenAI(
@@ -116,10 +201,14 @@ export async function generateQuiz(
   questionCount: number,
   model: string
 ): Promise<QuizQuestion[]> {
-  if (provider === "openai") {
-    return generateWithOpenAI(apiKey, transcript, questionCount, model);
-  } else {
-    return generateWithGemini(apiKey, transcript, questionCount, model);
+  try {
+    if (provider === "openai") {
+      return await generateWithOpenAI(apiKey, transcript, questionCount, model);
+    } else {
+      return await generateWithGemini(apiKey, transcript, questionCount, model);
+    }
+  } catch (err) {
+    throw new Error(parseAIError(err, provider));
   }
 }
 
@@ -343,33 +432,162 @@ export async function generateStudyMaterial(
   transcript: string,
   model: string
 ): Promise<Partial<StudyMaterials>> {
-  const prompt = buildStudyPrompt(type, transcript);
-  const jsonMode = type === "mindMap" || type === "flashcards";
-  const raw = await generateContent(provider, apiKey, prompt, model, jsonMode);
+  try {
+    const prompt = buildStudyPrompt(type, transcript);
+    const jsonMode = type === "mindMap" || type === "flashcards";
+    const raw = await generateContent(provider, apiKey, prompt, model, jsonMode);
 
-  switch (type) {
-    case "summary":
-      return { summary: cleanMarkdown(raw) };
-    case "studyGuide":
-      return { studyGuide: cleanMarkdown(raw) };
-    case "roadmap":
-      return { roadmap: cleanMarkdown(raw) };
-    case "mindMap": {
-      let jsonStr = raw.trim();
-      const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (fenceMatch) jsonStr = fenceMatch[1].trim();
-      const parsed = JSON.parse(jsonStr) as MindMapNode;
-      return { mindMap: parsed };
+    switch (type) {
+      case "summary":
+        return { summary: cleanMarkdown(raw) };
+      case "studyGuide":
+        return { studyGuide: cleanMarkdown(raw) };
+      case "roadmap":
+        return { roadmap: cleanMarkdown(raw) };
+      case "mindMap": {
+        let jsonStr = raw.trim();
+        const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (fenceMatch) jsonStr = fenceMatch[1].trim();
+        const parsed = JSON.parse(jsonStr) as MindMapNode;
+        return { mindMap: parsed };
+      }
+      case "flashcards": {
+        let jsonStr = raw.trim();
+        const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (fenceMatch) jsonStr = fenceMatch[1].trim();
+        const parsed = JSON.parse(jsonStr);
+        const cards: Flashcard[] = (parsed.flashcards || parsed).map(
+          (c: Flashcard) => ({ front: c.front, back: c.back })
+        );
+        return { flashcards: cards };
+      }
     }
-    case "flashcards": {
-      let jsonStr = raw.trim();
-      const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (fenceMatch) jsonStr = fenceMatch[1].trim();
-      const parsed = JSON.parse(jsonStr);
-      const cards: Flashcard[] = (parsed.flashcards || parsed).map(
-        (c: Flashcard) => ({ front: c.front, back: c.back })
-      );
-      return { flashcards: cards };
+  } catch (err) {
+    throw new Error(parseAIError(err, provider));
+  }
+}
+
+/* ---- Video Chat ---- */
+
+const CHAT_SYSTEM_PROMPT = `You are an expert educator assistant helping a student understand a YouTube video. You have been provided the full transcript of the video below.
+
+Answer the student's questions clearly and accurately based on the video content. If a question is outside the scope of the video, let the student know while still trying to be helpful. Use markdown formatting for your responses when appropriate.
+
+VIDEO TRANSCRIPT:
+`;
+
+export async function chatWithVideo(
+  provider: AIProvider,
+  apiKey: string,
+  transcript: string,
+  messages: ChatMessage[],
+  model: string
+): Promise<string> {
+  try {
+    const systemContent = CHAT_SYSTEM_PROMPT + transcript;
+
+    if (provider === "openai") {
+      const client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
+      const response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: systemContent },
+          ...messages.map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          })),
+        ],
+        temperature: 0.7,
+      });
+      const content = response.choices[0]?.message?.content;
+      if (!content) throw new Error("No response from OpenAI");
+      return content;
+    } else {
+      const ai = new GoogleGenAI({ apiKey });
+      // Build conversation as a single prompt for Gemini
+      let prompt = systemContent + "\n\n";
+      for (const m of messages) {
+        prompt += `${m.role === "user" ? "Student" : "Assistant"}: ${m.content}\n\n`;
+      }
+      prompt += "Assistant:";
+
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: { temperature: 0.7 },
+      });
+      const content = response.text;
+      if (!content) throw new Error("No response from Gemini");
+      return content;
     }
+  } catch (err) {
+    throw new Error(parseAIError(err, provider));
+  }
+}
+
+/** Streaming version of chatWithVideo – calls onChunk with accumulated text */
+export async function streamChatWithVideo(
+  provider: AIProvider,
+  apiKey: string,
+  transcript: string,
+  messages: ChatMessage[],
+  model: string,
+  onChunk: (accumulated: string) => void,
+  signal?: AbortSignal
+): Promise<string> {
+  try {
+    const systemContent = CHAT_SYSTEM_PROMPT + transcript;
+    let full = "";
+
+    if (provider === "openai") {
+      const client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
+      const stream = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: systemContent },
+          ...messages.map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          })),
+        ],
+        temperature: 0.7,
+        stream: true,
+      });
+      for await (const chunk of stream) {
+        if (signal?.aborted) break;
+        const delta = chunk.choices[0]?.delta?.content;
+        if (delta) {
+          full += delta;
+          onChunk(full);
+        }
+      }
+    } else {
+      const ai = new GoogleGenAI({ apiKey });
+      let prompt = systemContent + "\n\n";
+      for (const m of messages) {
+        prompt += `${m.role === "user" ? "Student" : "Assistant"}: ${m.content}\n\n`;
+      }
+      prompt += "Assistant:";
+
+      const response = await ai.models.generateContentStream({
+        model,
+        contents: prompt,
+        config: { temperature: 0.7 },
+      });
+      for await (const chunk of response) {
+        if (signal?.aborted) break;
+        const delta = chunk.text;
+        if (delta) {
+          full += delta;
+          onChunk(full);
+        }
+      }
+    }
+
+    if (!full) throw new Error(`No response from ${provider === "openai" ? "OpenAI" : "Gemini"}`);
+    return full;
+  } catch (err) {
+    if (signal?.aborted) return "";
+    throw new Error(parseAIError(err, provider));
   }
 }

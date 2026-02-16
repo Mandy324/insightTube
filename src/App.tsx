@@ -7,6 +7,8 @@ import SettingsPage from "./pages/SettingsPage";
 import DashboardPage from "./pages/DashboardPage";
 import HistoryPage from "./pages/HistoryPage";
 import StudyPage from "./pages/StudyPage";
+import NotesPage from "./pages/NotesPage";
+import TodoPage from "./pages/TodoPage";
 import "./App.css";
 
 function App() {
@@ -18,6 +20,8 @@ function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/study/:sessionId" element={<StudyPage />} />
+          <Route path="/notes" element={<NotesPage />} />
+          <Route path="/todos" element={<TodoPage />} />
           <Route path="/quiz" element={<QuizPage />} />
           <Route path="/results" element={<ResultsPage />} />
           <Route path="/settings" element={<SettingsPage />} />

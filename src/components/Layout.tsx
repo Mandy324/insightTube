@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { Home, Settings, Sparkles, BarChart3, Clock, PanelLeftClose, PanelLeft } from "lucide-react";
+import { Home, Settings, BarChart3, Clock, PanelLeftClose, PanelLeft, StickyNote, CheckSquare } from "lucide-react";
 
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
@@ -15,7 +15,7 @@ export default function Layout() {
     <div className={`app-layout ${collapsed ? "sidebar-collapsed" : ""}`}>
       <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
         <div className="sidebar-brand">
-          <Sparkles size={24} className="brand-icon" />
+          <img src="/logo.svg" alt="InsightTube" className="brand-logo" />
           {!collapsed && <span className="brand-text">InsightTube</span>}
         </div>
         <nav className="sidebar-nav">
@@ -33,6 +33,14 @@ export default function Layout() {
           >
             <Clock size={20} />
             {!collapsed && <span>History</span>}
+          </NavLink>
+          <NavLink to="/notes" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+            <StickyNote size={20} />
+            {!collapsed && <span>Notes</span>}
+          </NavLink>
+          <NavLink to="/todos" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+            <CheckSquare size={20} />
+            {!collapsed && <span>Tasks</span>}
           </NavLink>
           <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
             <Settings size={20} />

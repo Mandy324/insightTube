@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import QuizCard from "../components/QuizCard";
 import { Quiz, QuizResult } from "../types";
+import { addQuizResultToSession } from "../services/storage";
 
 export default function QuizPage() {
   const location = useLocation();
@@ -33,7 +34,7 @@ export default function QuizPage() {
     });
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentQuestion + 1 < quiz.questions.length) {
       setCurrentQuestion((prev) => prev + 1);
     } else {
@@ -53,6 +54,15 @@ export default function QuizPage() {
         totalQuestions: quiz.questions.length,
         completedAt: new Date().toISOString(),
       };
+
+      // Save result BEFORE navigation to ensure persistence
+      if (sessionId) {
+        try {
+          await addQuizResultToSession(sessionId, result);
+        } catch (err) {
+          console.error("Failed to save quiz result:", err);
+        }
+      }
 
       navigate("/results", { state: { result, sessionId } });
     }

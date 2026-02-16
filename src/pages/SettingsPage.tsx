@@ -1,9 +1,7 @@
 import { useState, useEffect } from "react";
-import { Save, Eye, EyeOff, CheckCircle, Key, Cpu, Hash } from "lucide-react";
-import ModelSelector from "../components/ModelSelector";
+import { Save, Eye, EyeOff, CheckCircle, Key, Hash } from "lucide-react";
 import { getSettings, saveSettings } from "../services/storage";
-import { getDefaultModelForProvider } from "../services/ai";
-import { AppSettings, DEFAULT_SETTINGS, AIProvider } from "../types";
+import { AppSettings, DEFAULT_SETTINGS } from "../types";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -32,24 +30,6 @@ export default function SettingsPage() {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleProviderChange = (provider: AIProvider) => {
-    // Save current model for current provider, restore saved model for new provider
-    const currentProvider = settings.selectedProvider;
-    const saveKey = currentProvider === "openai" ? "openaiModel" : "geminiModel";
-    const restoreKey = provider === "openai" ? "openaiModel" : "geminiModel";
-    setSettings((prev) => ({
-      ...prev,
-      [saveKey]: prev.selectedModel,
-      selectedProvider: provider,
-      selectedModel: prev[restoreKey],
-    }));
-  };
-
-  const currentApiKey =
-    settings.selectedProvider === "openai"
-      ? settings.openaiApiKey
-      : settings.geminiApiKey;
-
   if (loading) {
     return (
       <div className="page settings-page">
@@ -72,44 +52,6 @@ export default function SettingsPage() {
       </div>
 
       <div className="settings-sections">
-        {/* AI Provider Selection */}
-        <section className="settings-section">
-          <div className="section-header">
-            <Cpu size={20} />
-            <h2>AI Provider</h2>
-          </div>
-          <div className="provider-cards">
-            {(["gemini", "openai"] as AIProvider[]).map((provider) => (
-              <button
-                key={provider}
-                className={`provider-card ${settings.selectedProvider === provider ? "active" : ""}`}
-                onClick={() => handleProviderChange(provider)}
-              >
-                <div className="provider-card-inner">
-                  <div className="provider-name">
-                    {provider === "openai" ? "OpenAI" : "Google Gemini"}
-                  </div>
-                  <div className="provider-model">
-                    {provider === settings.selectedProvider
-                      ? settings.selectedModel
-                      : getDefaultModelForProvider(provider)}
-                  </div>
-                </div>
-                {settings.selectedProvider === provider && (
-                  <CheckCircle size={18} className="provider-check" />
-                )}
-              </button>
-            ))}
-          </div>
-
-          <ModelSelector
-            provider={settings.selectedProvider}
-            apiKey={currentApiKey}
-            selectedModel={settings.selectedModel}
-            onModelChange={(modelId) => updateSetting("selectedModel", modelId)}
-          />
-        </section>
-
         {/* API Keys */}
         <section className="settings-section">
           <div className="section-header">

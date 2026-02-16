@@ -17,6 +17,8 @@ export interface Quiz {
   videoTitle: string;
   videoUrl: string;
   questions: QuizQuestion[];
+  version?: number;
+  createdAt?: string;
 }
 
 export interface QuizResult {
@@ -98,3 +100,52 @@ export const DEFAULT_SETTINGS: AppSettings = {
   geminiModel: "gemini-2.5-flash",
   questionCount: 10,
 };
+
+/* ---- Todo ---- */
+
+export interface TodoItem {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt: string;
+  videoSessionId?: string; // link to a video session if relevant
+}
+
+/* ---- Notes ---- */
+
+export interface Note {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  videoSessionId?: string; // link to a video session if relevant
+}
+
+/* ---- Reminders ---- */
+
+export interface Reminder {
+  id: string;
+  text: string;
+  dueAt: string; // ISO string
+  completed: boolean;
+  createdAt: string;
+  videoSessionId?: string;
+}
+
+/* ---- Chat ---- */
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+}
+
+export interface ChatSession {
+  id: string;
+  videoSessionId: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+}

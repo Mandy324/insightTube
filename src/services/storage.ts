@@ -1,10 +1,14 @@
 import { load } from "@tauri-apps/plugin-store";
-import { AppSettings, DEFAULT_SETTINGS, VideoSession, QuizResult } from "../types";
+import { AppSettings, DEFAULT_SETTINGS, VideoSession, QuizResult, TodoItem, Note, Reminder, ChatSession } from "../types";
 
 const STORE_NAME = "settings.json";
 const DATA_STORE_NAME = "data.json";
 const SETTINGS_KEY = "app_settings";
 const SESSIONS_KEY = "video_sessions";
+const TODOS_KEY = "todos";
+const NOTES_KEY = "notes";
+const REMINDERS_KEY = "reminders";
+const CHAT_SESSIONS_KEY = "chat_sessions";
 
 let storeInstance: Awaited<ReturnType<typeof load>> | null = null;
 let dataStoreInstance: Awaited<ReturnType<typeof load>> | null = null;
@@ -113,6 +117,7 @@ export interface DashboardStats {
   bestScore: number;
   currentStreak: number;
   recentSessions: VideoSession[];
+  activityDates: Record<string, number>; // "YYYY-MM-DD" -> count of activities
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
@@ -156,6 +161,17 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     }
   }
 
+  // Activity calendar: count quiz completions + session creation per day
+  const activityDates: Record<string, number> = {};
+  for (const s of sessions) {
+    const day = s.createdAt.slice(0, 10); // "YYYY-MM-DD"
+    activityDates[day] = (activityDates[day] || 0) + 1;
+  }
+  for (const r of allResults) {
+    const day = r.completedAt.slice(0, 10);
+    activityDates[day] = (activityDates[day] || 0) + 1;
+  }
+
   return {
     totalVideos,
     totalQuizzes,
@@ -164,5 +180,97 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     bestScore,
     currentStreak,
     recentSessions: sessions.slice(0, 5),
+    activityDates,
   };
+}
+
+/* ---- Todos ---- */
+
+export async function getTodos(): Promise<TodoItem[]> {
+  try {
+    const store = await getDataStore();
+    return (await store.get<TodoItem[]>(TODOS_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveTodos(todos: TodoItem[]): Promise<void> {
+  const store = await getDataStore();
+  await store.set(TODOS_KEY, todos);
+  await store.save();
+}
+
+/* ---- Notes ---- */
+
+export async function getNotes(): Promise<Note[]> {
+  try {
+    const store = await getDataStore();
+    return (await store.get<Note[]>(NOTES_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveNotes(notes: Note[]): Promise<void> {
+  const store = await getDataStore();
+  await store.set(NOTES_KEY, notes);
+  await store.save();
+}
+
+/* ---- Reminders ---- */
+
+export async function getReminders(): Promise<Reminder[]> {
+  try {
+    const store = await getDataStore();
+    return (await store.get<Reminder[]>(REMINDERS_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveReminders(reminders: Reminder[]): Promise<void> {
+  const store = await getDataStore();
+  await store.set(REMINDERS_KEY, reminders);
+  await store.save();
+}
+
+/* ---- Chat Sessions ---- */
+
+export async function getChatSessions(): Promise<ChatSession[]> {
+  try {
+    const store = await getDataStore();
+    return (await store.get<ChatSession[]>(CHAT_SESSIONS_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveChatSessions(sessions: ChatSession[]): Promise<void> {
+  const store = await getDataStore();
+  await store.set(CHAT_SESSIONS_KEY, sessions);
+  await store.save();
+}
+
+export async function getChatSessionsByVideoId(videoSessionId: string): Promise<ChatSession[]> {
+  const all = await getChatSessions();
+  return all.filter((s) => s.videoSessionId === videoSessionId).sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
+export async function saveChatSession(session: ChatSession): Promise<void> {
+  const all = await getChatSessions();
+  const idx = all.findIndex((s) => s.id === session.id);
+  if (idx >= 0) {
+    all[idx] = session;
+  } else {
+    all.unshift(session);
+  }
+  await saveChatSessions(all);
+}
+
+export async function deleteChatSession(id: string): Promise<void> {
+  const all = await getChatSessions();
+  await saveChatSessions(all.filter((s) => s.id !== id));
 }
